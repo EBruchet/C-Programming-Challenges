@@ -24,7 +24,7 @@ typedef struct kv_pair {
 } kv_pair;
 
 typedef struct pod {
-	int pod_id;
+	unsigned long pod_id;
 	kv_pair *kv_pairs[RECORDS_PER_POD];
 } pod;
 
@@ -44,9 +44,15 @@ char *kv_store_read(char *key);
 char **kv_store_read_all(char *key);
 
 
+char testStr[40] = "Stop here. Continuing on...";
 int main() {
-	
-
+	char *stringPtr;
+	stringPtr = testStr;
+	printf("%lu\n", strlen(stringPtr));
+	printf("%s\n", stringPtr);
+	*(stringPtr + 10) = '\0';
+	printf("%lu\n", strlen(stringPtr));
+	printf("%s\n", stringPtr);
 	return 0;
 }
 
@@ -76,17 +82,47 @@ int kv_store_create(char *name){
 		return -1;
 	}
 
-	my_kv_store = mmap(NULL, KV_STORE_SIZE, PROT_READ|PROT_WRITE, MAP_SHARED, fd, 0);
+	my_kv_store = mmap(NULL, sizeof(kv_store), PROT_READ|PROT_WRITE, MAP_SHARED, fd, 0);
 
 	if(my_kv_store < 0){
 		printf("mmap execution failed");
 		return -1;
 	}
 
-	ftruncate(fd, KV_STORE_SIZE);
+	ftruncate(fd, sizeof(kv_store));
 
-
-	//TODO: Check wtf this does and if it's necessary?
-	// close(fd);
+	// Deletes the mappings for the KV_Store in this process, saves space/power (???)
+	munmap(my_kv_store, sizeof(kv_store));
+	close(fd);
 	return 0;
+}
+
+int kv_store_write(char *key, char *value){
+	if(my_kv_store == NULL){
+		printf("KV_Store was not created - there is no KV_Store to write to.");
+		return -1;
+	} else if(key == NULL || *key == '\0'){
+		printf("Key was either null or pointed to an empty array of characters.");
+		return -1;
+	} else if(value == NULL || *value == '\0'){
+		printf("Value was either null or pointed to an empty array of characters.");
+	}
+
+
+	if(strlen(key) >= KEY_SIZE){
+		*(key + KEY_SIZE + 1) = '\0';			
+	}
+
+	if(strlen(value) >= VAL_SIZE){
+		*(val + VAL_SIZE + 1) = '\0';
+	}
+
+	int pod_index = hash(key);
+
+
+	// TODO: Figure out semaphore shit
+	
+
+
+
 }
