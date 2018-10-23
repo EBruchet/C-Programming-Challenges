@@ -1,6 +1,6 @@
 #include <sys/mman.h>
-#include <sys/stat.h>
 #include <fcntl.h>
+#include <sys/stat.h>
 #include <semaphore.h>
 
 #include <stdio.h>
@@ -19,21 +19,24 @@
 #define KV_STORE_SIZE (NUM_PODS * RECORDS_PER_POD * (KEY_SIZE + VAL_SIZE))
 
 typedef struct kv_pair {
-	char key[32];
-	char val[256];
+	char key[KEY_SIZE];
+	char val[VAL_SIZE];
 } kv_pair;
 
 typedef struct pod {
 	unsigned long pod_id;
-	kv_pair *kv_pairs[RECORDS_PER_POD];
+	int curr_pair;
+	kv_pair kv_pairs[RECORDS_PER_POD];
 } pod;
 
 typedef struct kv_store {
 	char *name;
+	// TODO: Do I want this to be an array of pod pointers?
 	pod pods[NUM_PODS];
 } kv_store;
 
 kv_store *my_kv_store;
+sem_t *sem;
 
 unsigned long hash(unsigned char *str);
 
@@ -43,16 +46,17 @@ int kv_store_write(char *key, char *value);
 char *kv_store_read(char *key);
 char **kv_store_read_all(char *key);
 
-
-char testStr[40] = "Stop here. Continuing on...";
-int main() {
-	char *stringPtr;
-	stringPtr = testStr;
-	printf("%lu\n", strlen(stringPtr));
-	printf("%s\n", stringPtr);
-	*(stringPtr + 10) = '\0';
-	printf("%lu\n", strlen(stringPtr));
-	printf("%s\n", stringPtr);
+int main(int argc, char *argv[]) {
+	
+	if(argc > 1){
+		char *string_ptr = argv[1];
+		printf("Input: %s\n", string_ptr);
+		unsigned long hash_output = hash(string_ptr);
+		printf("Output: %lu\n", hash_output);
+	} else{
+		printf("Provide an argument next time idiot\n");
+	}
+	
 	return 0;
 }
 
@@ -63,11 +67,10 @@ unsigned long hash(unsigned char *str) {
 	int counter;
 
 	while(counter = *str++){
-		hash= counter + ((hash << 5) + hash);
+		hash = counter + ((hash << 1) + hash);
 	}
 
-	return (hash > 0) ? hash : -(hash);
-
+	return ((hash > 0 ) ? hash : -(hash));
 }
 
 int kv_store_create(char *name){
@@ -90,6 +93,8 @@ int kv_store_create(char *name){
 	}
 
 	ftruncate(fd, sizeof(kv_store));
+
+	my_kv_store->name = name;
 
 	// Deletes the mappings for the KV_Store in this process, saves space/power (???)
 	munmap(my_kv_store, sizeof(kv_store));
@@ -114,15 +119,41 @@ int kv_store_write(char *key, char *value){
 	}
 
 	if(strlen(value) >= VAL_SIZE){
-		*(val + VAL_SIZE + 1) = '\0';
+		*(value + VAL_SIZE + 1) = '\0';
 	}
 
-	int pod_index = hash(key);
+	int pod_index = hash(key) % RECORDS_PER_POD;
 
+	//TODO: Figure out semaphore name shit
+	// Initialized semaphore value to 1 so the first process to create it
+	// will be able to use it right away - I THINK
+	sem = sem_open("/sem_name", O_CREAT | O_RDWR, S_IRWXU, 1);
 
-	// TODO: Figure out semaphore shit
+	sem_wait(sem);
+	// Try to decrement the current semaphore value
+	// If > 0, then decrement succees
+	// If == 0, then thread blocks trying to decrement until woken up (???)
 	
+	/* START: CRITICAL REGION OF CODE*/
+	
+	// Get a pointer to the selected pod for this KV-Pair
+	pod *selected_pod = & (my_kv_store->pods[pod_index]);
+	// Set pointer for the next kv_pair in the array to be written to
+	kv_pair *sel_kv_pair = & (selected_pod->kv_pairs[selected_pod->curr_pair]);
+
+	
+	memcpy(&sel_kv_pair->key, key, strlen(key));
+	//sel_kv_pair->key = *key;
+	memcpy(&sel_kv_pair->val, value, strlen(value));
+	//sel_kv_pair->val = *value;
+
+	// Writes to the array of KV-Pairs on a FIFO basis, by wrapping around
+	// when we reach the end of the array
+	int curr_pair = selected_pod->curr_pair;
+	selected_pod->curr_pair = (int) (curr_pair + 1) % RECORDS_PER_POD;
 
 
+	sem_post(sem);
+	/* END: CRITICAL REGION OF CODE */
 
 }
