@@ -67,7 +67,7 @@ unsigned long hash(unsigned char *str) {
 	int counter;
 
 	while(counter = *str++){
-		hash = counter + ((hash << 1) + hash);
+		hash = counter + ((hash << 5) + hash);
 	}
 
 	return ((hash > 0 ) ? hash : -(hash));
@@ -124,10 +124,9 @@ int kv_store_write(char *key, char *value){
 
 	int pod_index = hash(key) % RECORDS_PER_POD;
 
-	//TODO: Figure out semaphore name shit
 	// Initialized semaphore value to 1 so the first process to create it
 	// will be able to use it right away - I THINK
-	sem = sem_open("/sem_name", O_CREAT | O_RDWR, S_IRWXU, 1);
+	sem = sem_open("/semname", O_CREAT | O_RDWR, S_IRWXU, 1);
 
 	sem_wait(sem);
 	// Try to decrement the current semaphore value
@@ -141,11 +140,10 @@ int kv_store_write(char *key, char *value){
 	// Set pointer for the next kv_pair in the array to be written to
 	kv_pair *sel_kv_pair = & (selected_pod->kv_pairs[selected_pod->curr_pair]);
 
-	
+	// Write the key value into memory at the selected
+	//
 	memcpy(&sel_kv_pair->key, key, strlen(key));
-	//sel_kv_pair->key = *key;
 	memcpy(&sel_kv_pair->val, value, strlen(value));
-	//sel_kv_pair->val = *value;
 
 	// Writes to the array of KV-Pairs on a FIFO basis, by wrapping around
 	// when we reach the end of the array
@@ -154,6 +152,37 @@ int kv_store_write(char *key, char *value){
 
 
 	sem_post(sem);
+
 	/* END: CRITICAL REGION OF CODE */
 
+}
+
+char *kv_store_read(char *key){
+
+	if(key == NULL || *key == '\0'){
+		printf("Key was either null or pointed to an empty array of characters.");
+		return -1;
+	} 
+
+	// TODO: What to do if the key is bigger than maximum allowed size?
+	// Option 1: Truncate it and check for the truncated string
+	// Option 2: Exit program with error message "Invalid string"
+
+	int pod_index = hash(key) % RECORDS_PER_POD;
+
+	// Open or create the semaphore
+	sem = sem_open("/semname", O_CREAT | O_RDWR, S_IRUSR, 1);
+
+	sem_wait(sem);
+
+	pod *selected_pod = &(my_kv_store->pods[pod_index]);
+
+
+	for(int i = 0; i < RECORDS_PER_POD; i++){
+		kv_pair *sel_kv_pair = &(selected_pod->kv_pairs[i]);
+		
+		
+	
+	}
+	
 }
