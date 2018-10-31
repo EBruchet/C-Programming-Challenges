@@ -10,6 +10,12 @@ void kill_shared_mem(){
     shm_unlink(__TEST_SHARED_MEM_NAME__);
 }
 
+void kv_delete_db() {
+	kill_shared_mem();
+	shm_unlink("WRITER_EVANBRUCHET_260613457");
+	shm_unlink("READER_EVANBRUCHET_260613457");
+}
+
 void intHandler(int dummy) {
     for(int i = 0; i < __TEST_FORK_NUM__; i++){
         kill(pids[i], SIGKILL);

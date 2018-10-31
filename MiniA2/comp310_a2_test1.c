@@ -8,6 +8,12 @@ void kill_shared_mem(){
     shm_unlink(__TEST_SHARED_MEM_NAME__);
 }
 
+void kv_delete_db() {
+	kill_shared_mem();
+    shm_unlink("WRITER_EVANBRUCHET_260613457");
+    shm_unlink("READER_EVANBRUCHET_260613457");
+}
+
 void intHandler(int dummy) {
     kv_delete_db();
     exit(0);
@@ -203,6 +209,9 @@ void read_all_test(char ** keys_buf, char *** data_buf,
         free(read_all);
     }
 }
+
+
+
 int main(){
     int errors = 0;
     char *temp;
@@ -219,6 +228,7 @@ int main(){
     signal(SIGINT, intHandler);
     signal(SIGQUIT, intHandler);
     signal(SIGTSTP, intHandler);
+    signal(SIGSEGV, intHandler);
 
     kill_shared_mem();
 

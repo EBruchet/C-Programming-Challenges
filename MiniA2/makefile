@@ -1,11 +1,11 @@
 #Enter Make test1 for test 1
 #Enter Make test2 for test 2
 
-CC=clang
+CC=gcc
 LIBS=-lrt -lpthread
 CFLAGS=-g
-SOURCE1=a2_lib.c comp310_a2_test1.c
-SOURCE2=a2_lib.c comp310_a2_test2.c
+SOURCE1=a2_lib.c comp310_a2_test1.c a2_helpers.c
+SOURCE2=a2_lib.c comp310_a2_test2.c a2_helpers.c
 
 EXEC1=os_test1 
 EXEC2=os_test2
