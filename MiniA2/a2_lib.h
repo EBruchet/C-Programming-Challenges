@@ -30,7 +30,6 @@
 #define NUM_VALS_PER_KEY 32
 #define NUM_PODS 512
 #define NUM_KEYS_PER_POD 4
-#define RECORDS_PER_POD 128
 
 unsigned long generate_hash(unsigned char *str);
 

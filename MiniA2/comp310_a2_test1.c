@@ -174,19 +174,20 @@ void read_all_test(char ** keys_buf, char *** data_buf,
         *errors += 1;
     }else{
         for(int k = 0; k < pattern_length; k++){
-            if(strcmp(read_all[0], data_buf[i][patterns[k]]) == 0){
+        		if(strcmp(read_all[0], data_buf[i][patterns[k]]) == 0){
                 start_index = k;
                 break;
             }
         }
 
         for(int k = 0;;k++){
-            if(read_all[k] == NULL){
-                break;
+			if(read_all[k] == NULL){
+				break;
             }else{
                 total_read++;
             }
         }
+
         if(total_read != pattern_length){
             printf("Invalid Read Length Based on Pattern Analysis\n");
             *errors += total_read > pattern_length ? total_read - pattern_length: pattern_length - total_read;
@@ -252,20 +253,19 @@ int main(){
     printf("-----------Initializing DB-----------\n");
     kv_store_create(__TEST_SHARED_MEM_NAME__);
     printf("-----------Attempting Invalid Read-----------\n");
-
     temp = kv_store_read("gtx 1080ti!!!");
     if(temp != NULL){
-        errors++;
+		errors++;
         printf("Did not return null on invalid key. \n");
         free(temp);
     }
     temp_all = kv_store_read_all("need that ryzen");
     if(temp_all != NULL){
+		//TODO: FUCK2
         errors++;
         printf("Did not return null on invalid key. \n");
         free(temp_all);
     }
-
     printf("-----------Attempting Simple Read and Writes-----------\n");
     for(int i = 0; i < __TEST_MAX_KEY__; i++){
         read_write_test(keys_buf, data_buf, elem_num, i, &errors);

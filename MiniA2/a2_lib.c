@@ -66,12 +66,14 @@ int kv_store_write(char *key, char *value){
 
 
 	//TODO: FIX DA FUCKING TING
-	if(strlen(key) >= KEY_SIZE)
-		*(key + KEY_SIZE) = '\0';			
+	if(strlen(key) >= KEY_SIZE){
+		*(key + KEY_SIZE)  = '\0';
+	}
 	
 
-	if(strlen(value) >= VAL_SIZE)
+	if(strlen(value) >= VAL_SIZE){
 		*(value + VAL_SIZE) = '\0';
+	}
 	
 	int pod_index = generate_hash(key) % NUM_PODS;
 
@@ -144,7 +146,11 @@ char *kv_store_read(char *key){
 
 	if(key == NULL || *key == '\0'){
 		printf("Key was either null or pointed to an empty array of characters.");
-		return returned_pointer;
+		return NULL;
+	}
+	
+	if(strlen(key) >= KEY_SIZE){
+		*(key + KEY_SIZE)  = '\0';
 	}
 
 	// Option 1: Truncate it and check for the truncated string
@@ -160,6 +166,8 @@ char *kv_store_read(char *key){
 	// Get the pod relevant to the passed key
 	pod *sel_pod = &(my_kv_store->pods[pod_index]);
 	int found_key_index = -1;
+	int num_vals = 1;
+
 	for(int i = 0; i < NUM_KEYS_PER_POD; i++){
 		kv_key *curr_key = & (sel_pod->keys[i]);
 		if(strcmp(curr_key->key_name, key) == 0){
@@ -167,15 +175,27 @@ char *kv_store_read(char *key){
 			break;
 		}
 	}
-
+	//printf("FKI: %d", found_key_index);
 	if(found_key_index < 0){
-		return returned_pointer;
+		sem_post(sem);
+		munmap(my_kv_store, sizeof(kv_store));
+		close(fd);
+		return NULL;
 	} else{
 		kv_key *sel_key = & (sel_pod->keys[found_key_index]);
 		val *sel_val = & (sel_key->values[sel_key->next_val_read]);
+		for(int i = 1; i < NUM_VALS_PER_KEY; i++){
+			val *curr_val = & (sel_key->values[i]);
+			if(strlen(curr_val->val_name) == 0){
+				break;
+			}
+			num_vals++;
+		}
+		
 		returned_pointer = strdup(sel_val->val_name);
+		int next_val_write = sel_key->next_val_write;
 		int next_val_read = sel_key->next_val_read;
-		sel_key->next_val_read = (int)(next_val_read + 1) % NUM_VALS_PER_KEY;
+		sel_key->next_val_read = (int)(next_val_read + 1) % num_vals;
 	}
 
 
@@ -188,7 +208,7 @@ char *kv_store_read(char *key){
 
 char **kv_store_read_all(char *key){
 	// implement your create method code here
-	/*char **returned_array = NULL;
+	char **returned_values = malloc((NUM_VALS_PER_KEY + 1) * sizeof(char *));
 	sem_t *sem;
 	int fd = shm_open(__KV_STORE_NAME__, O_CREAT|O_RDWR, S_IRWXU);
 	kv_store *my_kv_store;
@@ -196,42 +216,64 @@ char **kv_store_read_all(char *key){
 
 	if(key == NULL || *key == '\0'){
 		printf("Key was either null or pointed to an empty array of characters.");
+		sem_post(sem);
+		munmap(my_kv_store, sizeof(kv_store));
 		return NULL;
 	}
 	
-	int pod_index = generate_hash(key) % RECORDS_PER_POD;
+	//if(strlen(key) >= KEY_SIZE){
+	//	*(key + KEY_SIZE)  = '\0';
+	//}
+
+	int pod_index = generate_hash(key) % NUM_PODS;
 
 	sem = sem_open(__KV_READERS_SEMAPHORE__, O_CREAT | O_RDWR, S_IRWXU, 1);
 	sem_wait(sem);
 
-	pod *selected_pod = &(my_kv_store->pods[pod_index]);
-	int num_found_pairs = 0;
+	pod *sel_pod = & (my_kv_store->pods[pod_index]);
+	int num_found_vals = 0;
 
-	for(int i = 0; i < RECORDS_PER_POD; i++){
-		kv_pair *sel_kv_pair = &(selected_pod->kv_pairs[i]);
-		char *found_key = sel_kv_pair->key;
-		if(strcmp(found_key, key) == 0){
-			num_found_pairs++;
+	int found_key_index = -1;
+	for(int i = 0; i < NUM_KEYS_PER_POD; i++){
+		kv_key *curr_key = & (sel_pod->keys[i]);
+		if(strcmp(curr_key->key_name, key) == 0){
+			found_key_index = i;
+			break;
 		}
 	}
 
-	char **returned_values = (char **) malloc((num_found_pairs + 1) *sizeof(char*));
-
-	for(int i = 0; i < num_found_pairs; i++){
-		kv_pair *sel_kv_pair = &(selected_pod->kv_pairs[i]);
-		char *found_key = sel_kv_pair->key;
-		if(strcmp(found_key, key) == 0){
-			for(int j = 0; j < KEY_SIZE; j++){
-				returned_values[i] = strdup(sel_kv_pair->val);				
+	if(found_key_index < 0){
+		sem_post(sem);
+		munmap(my_kv_store, sizeof(kv_store));
+		close(fd);
+		return NULL;
+	} else{
+		kv_key *sel_key = & (sel_pod->keys[found_key_index]);
+		for(int i = 0; i < NUM_VALS_PER_KEY; i++){
+			val *curr_val = & (sel_key->values[i]);
+			if(strlen(curr_val->val_name) == 0){
+				break;	
 			}
+			num_found_vals++;
+		}
+	
+		for(int i = 0; i < num_found_vals; i++){
+			val *curr_val = & (sel_key->values[i]);
+			if(strlen(curr_val->val_name) == 0){
+				returned_values[i] = NULL;
+				break;
+			}
+			returned_values[i] = malloc(sizeof(curr_val->val_name));
+			strcpy(returned_values[i], curr_val->val_name);
 		}
 	}
+
+	returned_values[num_found_vals] = NULL;
 
 	sem_post(sem);
 	munmap(my_kv_store, sizeof(kv_store));
 	close(fd);
-	*/
-	return NULL;
+	return returned_values;
 }
 
 
@@ -240,10 +282,21 @@ char **kv_store_read_all(char *key){
 	with some simple tests as you go on implementing it (without using the tester)
 	-------------------------------------------------------------------------------
 */
-/*int main(int argc, char *argv[]) {
+/*
+int main(int argc, char *argv[]) {
 	kv_store_create(__KV_STORE_NAME__);
-	//kv_store_write(argv[1], argv[2]);
-	char *fk_u_feras = kv_store_read(argv[1]);
-	printf("Found: %s", fk_u_feras);
+	kv_store_write("test_key_1", "test_val_1");
+	kv_store_write("test_key_1", "test_val_2");
+	kv_store_write("test_key_2", "test_val_1");
+	kv_store_write("test_key_2", "test_val_2");
+	kv_store_write("test_key_3", "test_val_1");
+	
+	
+	while(true){
+		char *fk_u_feras = kv_store_read("test_key_1");
+		char *yeeticus = kv_store_read("test_key_1");
+		char *yaataa = kv_store_read("test_key_1");
+		printf("Found: %s, %s, %s", fk_u_feras, yeeticus, yaataa);
+	}
 	return EXIT_SUCCESS;
 }*/
