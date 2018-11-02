@@ -11,9 +11,10 @@ void kill_shared_mem(){
 }
 
 void kv_delete_db() {
-	kill_shared_mem();
-	shm_unlink("WRITER_EVANBRUCHET_260613457");
-	shm_unlink("READER_EVANBRUCHET_260613457");
+	//kill_shared_mem();
+	shm_unlink(__TEST_SHARED_MEM_NAME__);
+	sem_unlink("/WRITER_EVANBRUCHET_260613457");
+	sem_unlink("/READER_EVANBRUCHET_260613457");
 }
 
 void intHandler(int dummy) {

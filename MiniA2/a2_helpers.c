@@ -58,3 +58,12 @@ void generate_key(char buf[], int length, char **keys_buf, int num_keys){
     }
     return;
 }
+
+// Closes semaphore(s), file descriptor and unmaps kv_store from
+// virtual address space.
+void clean_up(sem_t *sem, kv_store *my_kv_store, int fd){
+	sem_post(sem);
+	sem_close(sem);
+	munmap(my_kv_store, sizeof(kv_store));
+	close(fd);
+}
