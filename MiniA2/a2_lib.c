@@ -189,6 +189,8 @@ char **kv_store_read_all(char *key){
 	pod *sel_pod = & (my_kv_store->pods[pod_index]);
 	int num_found_vals = 0;
 
+	// Loop through all keys in the selected pod, checking if the key name
+	// matches the one passes as input
 	int found_key_index = -1;
 	for(int i = 0; i < NUM_KEYS_PER_POD; i++){
 		kv_key *curr_key = & (sel_pod->keys[i]);
@@ -198,10 +200,14 @@ char **kv_store_read_all(char *key){
 		}
 	}
 
+	// If the key was not found, return NULL
 	if(found_key_index < 0){
 		clean_up(sem_read, my_kv_store, fd);
 		return NULL;
-	} else{
+	} 
+	// If the key was found, add all the values associated to that key to the char **
+	// returned_values
+	else{
 		kv_key *sel_key = & (sel_pod->keys[found_key_index]);
 		for(int i = 0; i < sel_key->num_vals; i++){
 			val *curr_val = & (sel_key->values[i]);
@@ -212,11 +218,9 @@ char **kv_store_read_all(char *key){
 			returned_values[i] = malloc(sizeof(curr_val->val_name));
 			strcpy(returned_values[i], curr_val->val_name);
 		}
-
+		// Null terminate the list of values
 		returned_values[sel_key->num_vals] = NULL;
 	}
-
-
 	clean_up(sem_read, my_kv_store, fd);
 	return returned_values;
 }
