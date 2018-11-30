@@ -16,6 +16,10 @@
  *  You must add this to all the controls you create so that it is added to the task list.
  *  See the example 'cgroups_control' added to the array of controls - 'cgroups' - below
  **/  
+
+int next_cgroup_pos = 1;
+int next_blkio_setting = 1;
+
 struct cgroup_setting self_to_task = {
 	.name = "tasks",
 	.value = "0"
@@ -29,7 +33,7 @@ struct cgroup_setting self_to_task = {
  *      in the comments for the main() below
  *  ------------------------------------------------------
  **/ 
-struct cgroups_control *cgroups[5] = {
+struct cgroups_control *cgroups[6] = {
 	& (struct cgroups_control) {
 		.control = CGRP_BLKIO_CONTROL,
 		.settings = (struct cgroup_setting *[]) {
@@ -75,7 +79,7 @@ int main(int argc, char **argv)
     pid_t child_pid = 0;
     int last_optind = 0;
     bool found_cflag = false;
-    while ((option = getopt(argc, argv, "c:m:u:")))
+    while ((option = getopt(argc, argv, "c:m:u:C:s:p:M:r:w:H:")))
     {
         if (found_cflag)
             break;
@@ -98,6 +102,104 @@ int main(int argc, char **argv)
                 return EXIT_FAILURE;
             }
             break;
+        // Counter to keep track of next position in array to write to?
+		case 'C':
+            cgroups[next_cgroup_pos] = & (struct cgroups_control) {
+		                                .control = CGRP_CPU_CONTROL,
+		                                .settings = (struct cgroup_setting *[]) {
+			                                & (struct cgroup_setting) {
+				                                .name = "cpu.shares",
+				                                .value = ""
+			                                },
+			                                &self_to_task,             // must be added to all the new controls added
+			                                NULL                       // NULL at the end of the array
+		                                }
+	                                };
+            memcpy(&(cgroups[next_cgroup_pos]->settings[0]->value), optarg, strlen(optarg));
+            next_cgroup_pos++;
+			break;
+		case 's':
+			cgroups[next_cgroup_pos] = & (struct cgroups_control) {
+		                                .control = CGRP_CPU_SET_CONTROL,
+		                                .settings = (struct cgroup_setting *[]) {
+			                                & (struct cgroup_setting) {
+				                                .name = "cpuset.cpus",
+				                                .value = ""
+			                                },
+			                                &self_to_task,             // must be added to all the new controls added
+			                                NULL                       // NULL at the end of the array
+		                                }
+	                                };
+            memcpy(&(cgroups[next_cgroup_pos]->settings[0]->value), optarg, strlen(optarg));
+            (cgroups[next_cgroup_pos]->settings[1]) = & (struct cgroup_setting) {
+				                                        .name = "cpuset.mem",
+				                                        .value = "0"
+			                                        };
+            (cgroups[next_cgroup_pos]->settings[2]) = &self_to_task;
+            (cgroups[next_cgroup_pos]->settings[3]) = NULL;
+            next_cgroup_pos++;
+			break;
+		case 'p':
+            cgroups[next_cgroup_pos] = & (struct cgroups_control) {
+		                                .control = CGRP_PIDS_CONTROL,
+		                                .settings = (struct cgroup_setting *[]) {
+			                                & (struct cgroup_setting) {
+				                                .name = "pids.max",
+				                                .value = ""
+			                                },
+			                                &self_to_task,             // must be added to all the new controls added
+			                                NULL                       // NULL at the end of the array
+		                                }
+	                                };
+            memcpy(&(cgroups[next_cgroup_pos]->settings[0]->value), optarg, strlen(optarg));
+            next_cgroup_pos++;
+			break;
+		case 'M':
+            cgroups[next_cgroup_pos] = & (struct cgroups_control) {
+		                                .control = CGRP_MEMORY_CONTROL,
+		                                .settings = (struct cgroup_setting *[]) {
+			                                & (struct cgroup_setting) {
+				                                .name = "memory.limit_in_bytes",
+				                                .value = ""
+			                                },
+			                                &self_to_task,             // must be added to all the new controls added
+			                                NULL                       // NULL at the end of the array
+		                                }
+	                                };
+            memcpy(&(cgroups[next_cgroup_pos]->settings[0]->value), optarg, strlen(optarg));
+            next_cgroup_pos++;
+			break;
+		case 'r':
+            (cgroups[0]->settings[next_blkio_setting]) = & (struct cgroup_setting) {
+				                                        .name = "blkio.throttle.read_iops_device",
+				                                        .value = ""
+			                                        };
+            memcpy(&(cgroups[0]->settings[next_blkio_setting]->value), optarg, strlen(optarg));
+            next_blkio_setting++;
+            (cgroups[0]->settings[next_blkio_setting]) = &self_to_task;
+            next_blkio_setting++;
+            (cgroups[0]->settings[next_blkio_setting]) = NULL;
+            next_blkio_setting++;
+
+            next_cgroup_pos++;
+			break;
+		case 'w':
+            (cgroups[0]->settings[next_blkio_setting]) = & (struct cgroup_setting) {
+				                                        .name = "blkio.throttle.write_iops_device",
+				                                        .value = ""
+			                                        };
+            memcpy(&(cgroups[0]->settings[next_blkio_setting]->value), optarg, strlen(optarg));
+            next_blkio_setting++;
+            (cgroups[0]->settings[next_blkio_setting]) = &self_to_task;
+            next_blkio_setting++;
+            (cgroups[0]->settings[next_blkio_setting]) = NULL;
+            next_blkio_setting++;
+
+            next_cgroup_pos++;
+			break;
+		case 'H':
+            config.hostname = optarg;
+			break;
         default:
             cleanup_stuff(argv, sockets);
             return EXIT_FAILURE;
@@ -181,6 +283,19 @@ int main(int argc, char **argv)
      **/
 
         // You code for clone() goes here
+        char *stack;
+		char *stack_top;
+
+        stack = malloc(STACK_SIZE);
+        if(stack == NULL){
+            printf("Error allocating memory to stack with malloc.\n");
+        }
+
+        void *config_ptr = &config;
+        stack_top = stack + STACK_SIZE;
+        int clone_flags = SIGCHLD | CLONE_NEWNET | CLONE_NEWCGROUP | CLONE_NEWPID | CLONE_NEWIPC | CLONE_NEWNS | CLONE_NEWUTS;
+        child_pid = clone(child_function, stack_top, clone_flags, config_ptr);
+
 
     /**
      *  ------------------------------------------------------

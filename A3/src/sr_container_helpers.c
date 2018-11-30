@@ -17,6 +17,8 @@ int switch_child_root(const char *new_root, const char *put_old)
      *  Simply use the "pivot_root()" system call to switch child's root to the new root
      *  ------------------------------------------------------
      * */ 
+    // pivot_root(new_root, put_old);
+    syscall(SYS_pivot_root, new_root, put_old);
     return 0;
 }
 
@@ -38,6 +40,50 @@ int setup_child_capabilities()
      *      will indicate many capabilities. But after properly implementing this method if you run the same
      *      command inside your container you will see a smaller set of capabilities for [Bounding set]
      **/
+    int drop_caps[] = {CAP_AUDIT_CONTROL, CAP_AUDIT_READ, CAP_AUDIT_WRITE,
+                        CAP_BLOCK_SUSPEND, CAP_DAC_READ_SEARCH, CAP_FSETID, CAP_IPC_LOCK,
+                        CAP_MAC_ADMIN, CAP_MAC_OVERRIDE, CAP_MKNOD, CAP_SETFCAP,
+                        CAP_SYSLOG, CAP_SYS_ADMIN, CAP_SYS_BOOT, CAP_SYS_MODULE,
+                        CAP_SYS_NICE, CAP_SYS_RAWIO, CAP_SYS_RESOURCE, CAP_SYS_TIME,
+                        CAP_WAKE_ALARM};
+    size_t num_caps_to_drop = 20;
+
+    // STEP(1) :: Dropping the capability from the AMBIENT set
+    for (size_t i = 0; i < num_caps_to_drop; i++)
+    {
+        if(prctl(PR_CAPBSET_DROP, drop_caps[i], 0, 0, 0)){
+            fprintf(stderr, "prctl failed: %m\n");
+            return 1;
+        }
+    } 
+
+    cap_t caps = cap_get_proc();
+    if(caps == NULL) {
+        perror("cap_get_proc");
+        if(caps){
+            cap_free(caps);
+        }
+        return EXIT_FAILURE;
+    }
+
+    // STEP(2) :: Now from the above caps clear our 2 capabilities from the INHERITED set
+    int clear_inh_set = cap_set_flag(caps, CAP_INHERITABLE, num_caps_to_drop, drop_caps, CAP_CLEAR);
+    if(clear_inh_set){
+        perror("cap_set_flag");
+        cap_free(caps);
+        return EXIT_FAILURE;
+    }
+
+    // Now set the cleared caps-structure as the processes new capability set
+    int set_cap_set = cap_set_proc(caps);
+    if(set_cap_set){
+        perror("cap_set_proc");
+        cap_free(caps);
+        return EXIT_FAILURE;
+    }
+    
+    cap_free(caps);
+
     return 0;
 }
 
@@ -49,6 +95,149 @@ int setup_child_capabilities()
  **/ 
 int setup_syscall_filters()
 {
+    scmp_filter_ctx seccomp_ctx = seccomp_init(SCMP_ACT_ALLOW);     
+    if (!seccomp_ctx) {
+        fprintf(stderr, "seccomp initialization failed: %m\n");
+        return EXIT_FAILURE;
+    }
+
+    /**
+    *  Now we must set up filters for certain system calls for which we want different behavior
+    *      Lets say we want to block the following system_calls. As in we want to kill any thread that tries to do them
+    *          move_pages  - moves memory pages of a process to different blocks
+    *          ptrace      - observe, track and control execution of another process
+    * 
+    *          seccomp_rule_add() is the method used to add a filtering rule
+    *          SCMP_FAIL is the action to take when there is match on this filter (IE. KILL the thread - no mercy!!!)
+    *          SCMP_SYS(move_pages) -  the 3rd argument is the system-call number to which this filter applies. 
+    *                                  we use the SCMP_SYS() macro to get the correct number based on the underlying architecture
+    *          4th argument - You use this argument if you dont want to capture all calls to the system call but want to capture
+    *                          calls only when the system call has certain matching arguments.
+    *                          Ex: the read() system call is called with the first argument being 0 (STDOUT)
+    **/
+    /*------ MOVE_PAGES RULE ------*/
+    int filter_set_status = seccomp_rule_add(
+                                                seccomp_ctx,            // the context to which the rule applies
+                                                SCMP_FAIL,          // action to take on rule match
+                                                SCMP_SYS(move_pages),   // get the sys_call number using SCMP_SYS() macro
+                                                0                       // any additional argument matches
+                                            );
+    if (filter_set_status) {
+        if (seccomp_ctx)
+            seccomp_release(seccomp_ctx);
+        fprintf(stderr, "seccomp could not add KILL rule for 'move_pages': %m\n");
+        return EXIT_FAILURE;
+    }
+
+    /*------ MBIND RULE ------*/
+    filter_set_status = seccomp_rule_add(seccomp_ctx, SCMP_FAIL, SCMP_SYS(mbind), 0);
+    if (filter_set_status) {
+        if (seccomp_ctx)
+            seccomp_release(seccomp_ctx);
+        fprintf(stderr, "seccomp could not add KILL rule for 'mbind': %m\n");
+        return EXIT_FAILURE;
+    }
+
+    /*------ MIGRATE_PAGES RULE ------*/
+    filter_set_status = seccomp_rule_add(seccomp_ctx, SCMP_FAIL, SCMP_SYS(migrate_pages), 0);
+    if (filter_set_status) {
+        if (seccomp_ctx)
+            seccomp_release(seccomp_ctx);
+        fprintf(stderr, "seccomp could not add KILL rule for 'migrate_pages': %m\n");
+        return EXIT_FAILURE;
+    }
+
+    /*------ PTRACE RULE ------*/
+    filter_set_status = seccomp_rule_add(seccomp_ctx, SCMP_FAIL, SCMP_SYS(ptrace), 0);
+    if (filter_set_status) {
+        if (seccomp_ctx)
+            seccomp_release(seccomp_ctx);
+        fprintf(stderr, "seccomp could not add KILL rule for 'ptrace': %m\n");
+        return EXIT_FAILURE;
+    }
+
+    /**
+    *  As another example lets say you want to disallow the 'unshare' system call
+    *  But say that you want to disallow it ONLY if the 'CLONE_NEWUSER' flag is set in its argument
+    *  Now we observe the signature for unshare() is as follows:
+    *                  int unshare(int flags);
+    *  Here flags can be an OR'ed combination of CLONE_FILES, CLONE_FS, CLONE_NEWCGROUP, CLONE_NEWUSER and many
+    *  So we want to just capture calls to unshare() only if the 'CLONE_NEWUSER' flag is OR'ed in the argument.
+    *  So seccomp_rule_add() would be as follows 
+    **/
+    /*------ UNSHARE RULE ------*/
+    filter_set_status = seccomp_rule_add(
+                                        seccomp_ctx,                    // the context to which the rule applies
+                                        SCMP_FAIL,                  // action to take on rule match
+                                        SCMP_SYS(unshare),              // get the sys_call number using SCMP_SYS() macro
+                                        1,                              // any additional argument matches
+                                        SCMP_A0(SCMP_CMP_MASKED_EQ, CLONE_NEWUSER, CLONE_NEWUSER)
+                                        );
+    if (filter_set_status) {
+        if (seccomp_ctx)
+            seccomp_release(seccomp_ctx);
+        fprintf(stderr, "seccomp could not add KILL rule for 'unshare': %m\n");
+        return EXIT_FAILURE;
+    }
+
+    /*------ CLONE RULE ------*/
+    filter_set_status = seccomp_rule_add(
+                                        seccomp_ctx,                    // the context to which the rule applies
+                                        SCMP_FAIL,                  // action to take on rule match
+                                        SCMP_SYS(clone),              // get the sys_call number using SCMP_SYS() macro
+                                        1,                              // any additional argument matches
+                                        SCMP_A2(SCMP_CMP_MASKED_EQ, CLONE_NEWUSER, CLONE_NEWUSER)
+                                        );
+    if (filter_set_status) {
+        if (seccomp_ctx)
+            seccomp_release(seccomp_ctx);
+        fprintf(stderr, "seccomp could not add KILL rule for 'clone': %m\n");
+        return EXIT_FAILURE;
+    }
+    
+    /*------ CHMOD RULE ------*/
+    filter_set_status = seccomp_rule_add(
+                                        seccomp_ctx,                    // the context to which the rule applies
+                                        SCMP_FAIL,                  // action to take on rule match
+                                        SCMP_SYS(chmod),              // get the sys_call number using SCMP_SYS() macro
+                                        1,                              // any additional argument matches
+                                        SCMP_A3(SCMP_CMP_MASKED_EQ, S_ISUID, S_ISUID),
+                                        SCMP_A3(SCMP_CMP_MASKED_EQ, S_ISGID, S_ISGID)
+                                        );
+    if (filter_set_status) {
+        if (seccomp_ctx)
+            seccomp_release(seccomp_ctx);
+        fprintf(stderr, "seccomp could not add KILL rule for 'clone': %m\n");
+        return EXIT_FAILURE;
+    }
+
+    /**
+    *  Set the 'SCMP_FLTATR_CTL_NNP' attribute on the newly created context
+    *  This attribute is used to ensure that the NO_NEW_PRIVS functionality is enabled 
+    *  This is to control previledge escalation of child processes spawned with exec() in a parent with lesser priviledge
+    *  You can just copy this and use it at the end of all seccomp rules.
+    **/
+    // TODO: COPY THIS TO THE END OF ALL SECCOMP RULES
+    filter_set_status = seccomp_attr_set(seccomp_ctx, SCMP_FLTATR_CTL_NNP, 0);
+    if (filter_set_status) {
+        if (seccomp_ctx)
+            seccomp_release(seccomp_ctx);
+        fprintf(stderr, "seccomp could not set attribute 'SCMP_FLTATR_CTL_NNP': %m\n");
+        return EXIT_FAILURE;
+    }
+
+
+    /**
+    *  Finally load the created context into the kernel and release it from the current process memory
+    **/ 
+    filter_set_status = seccomp_load(seccomp_ctx);
+    if (filter_set_status) {
+        if (seccomp_ctx)
+            seccomp_release(seccomp_ctx);               // release from current process memory.
+        fprintf(stderr, "seccomp could not load the new context: %m\n");
+        return EXIT_FAILURE;
+    }
+
     return 0;
 }
 
