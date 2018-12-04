@@ -118,7 +118,7 @@ int setup_syscall_filters()
     /*------ MOVE_PAGES RULE ------*/
     int filter_set_status = seccomp_rule_add(
                                                 seccomp_ctx,            // the context to which the rule applies
-                                                SCMP_FAIL,          // action to take on rule match
+                                                SCMP_ACT_KILL,          // action to take on rule match
                                                 SCMP_SYS(move_pages),   // get the sys_call number using SCMP_SYS() macro
                                                 0                       // any additional argument matches
                                             );
@@ -130,7 +130,7 @@ int setup_syscall_filters()
     }
 
     /*------ MBIND RULE ------*/
-    filter_set_status = seccomp_rule_add(seccomp_ctx, SCMP_FAIL, SCMP_SYS(mbind), 0);
+    filter_set_status = seccomp_rule_add(seccomp_ctx, SCMP_ACT_KILL, SCMP_SYS(mbind), 0);
     if (filter_set_status) {
         if (seccomp_ctx)
             seccomp_release(seccomp_ctx);
@@ -139,7 +139,7 @@ int setup_syscall_filters()
     }
 
     /*------ MIGRATE_PAGES RULE ------*/
-    filter_set_status = seccomp_rule_add(seccomp_ctx, SCMP_FAIL, SCMP_SYS(migrate_pages), 0);
+    filter_set_status = seccomp_rule_add(seccomp_ctx, SCMP_ACT_KILL, SCMP_SYS(migrate_pages), 0);
     if (filter_set_status) {
         if (seccomp_ctx)
             seccomp_release(seccomp_ctx);
@@ -148,7 +148,7 @@ int setup_syscall_filters()
     }
 
     /*------ PTRACE RULE ------*/
-    filter_set_status = seccomp_rule_add(seccomp_ctx, SCMP_FAIL, SCMP_SYS(ptrace), 0);
+    filter_set_status = seccomp_rule_add(seccomp_ctx, SCMP_ACT_KILL, SCMP_SYS(ptrace), 0);
     if (filter_set_status) {
         if (seccomp_ctx)
             seccomp_release(seccomp_ctx);
@@ -168,7 +168,7 @@ int setup_syscall_filters()
     /*------ UNSHARE RULE ------*/
     filter_set_status = seccomp_rule_add(
                                         seccomp_ctx,                    // the context to which the rule applies
-                                        SCMP_FAIL,                  // action to take on rule match
+                                        SCMP_ACT_KILL,                  // action to take on rule match
                                         SCMP_SYS(unshare),              // get the sys_call number using SCMP_SYS() macro
                                         1,                              // any additional argument matches
                                         SCMP_A0(SCMP_CMP_MASKED_EQ, CLONE_NEWUSER, CLONE_NEWUSER)
@@ -183,7 +183,7 @@ int setup_syscall_filters()
     /*------ CLONE RULE ------*/
     filter_set_status = seccomp_rule_add(
                                         seccomp_ctx,                    // the context to which the rule applies
-                                        SCMP_FAIL,                  // action to take on rule match
+                                        SCMP_ACT_KILL,                  // action to take on rule match
                                         SCMP_SYS(clone),              // get the sys_call number using SCMP_SYS() macro
                                         1,                              // any additional argument matches
                                         SCMP_A2(SCMP_CMP_MASKED_EQ, CLONE_NEWUSER, CLONE_NEWUSER)
@@ -198,11 +198,11 @@ int setup_syscall_filters()
     /*------ CHMOD RULE ------*/
     filter_set_status = seccomp_rule_add(
                                         seccomp_ctx,                    // the context to which the rule applies
-                                        SCMP_FAIL,                  // action to take on rule match
+                                        SCMP_ACT_KILL,                  // action to take on rule match
                                         SCMP_SYS(chmod),              // get the sys_call number using SCMP_SYS() macro
                                         1,                              // any additional argument matches
-                                        SCMP_A3(SCMP_CMP_MASKED_EQ, S_ISUID, S_ISUID),
-                                        SCMP_A3(SCMP_CMP_MASKED_EQ, S_ISGID, S_ISGID)
+                                        SCMP_A1(SCMP_CMP_MASKED_EQ, S_ISUID, S_ISUID),
+                                        SCMP_A1(SCMP_CMP_MASKED_EQ, S_ISGID, S_ISGID)
                                         );
     if (filter_set_status) {
         if (seccomp_ctx)

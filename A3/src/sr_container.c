@@ -17,7 +17,11 @@
  *  See the example 'cgroups_control' added to the array of controls - 'cgroups' - below
  **/  
 
+
+// Counter used to keep track of the next position in the cgroups array to write to
 int next_cgroup_pos = 1;
+
+// Counter used to keep track of the next blkio setting to be written to in its respective array
 int next_blkio_setting = 1;
 
 struct cgroup_setting self_to_task = {
@@ -42,7 +46,9 @@ struct cgroups_control *cgroups[6] = {
 				.value = "64"
 			},
 			&self_to_task,             // must be added to all the new controls added
-			NULL                       // NULL at the end of the array
+			NULL,
+            NULL,                      // Blkio is given 3 NULL elements at the end to allocate space for additional settings to be input
+            NULL                       // NULL at the end of the array
 		}
 	},
 	NULL                               // NULL at the end of the array
@@ -102,8 +108,19 @@ int main(int argc, char **argv)
                 return EXIT_FAILURE;
             }
             break;
-        // Counter to keep track of next position in array to write to?
+    	
+
+        /*
+        ------------------------ DYNAMIC CREATION OF CGROUP CONTROLS & SETTINGS ------------------------
+        */
+
+        /*
+        --- CGROUP CONTROL: CPU SHARES ---
+        --- CGROUP PARAMETER: cpu.shares ---
+        --- CGROUP FUNCTION: specifies a relative share of CPU time available to the tasks in a cgroup ---
+        */
 		case 'C':
+
             cgroups[next_cgroup_pos] = & (struct cgroups_control) {
 		                                .control = CGRP_CPU_CONTROL,
 		                                .settings = (struct cgroup_setting *[]) {
@@ -111,13 +128,19 @@ int main(int argc, char **argv)
 				                                .name = "cpu.shares",
 				                                .value = ""
 			                                },
-			                                &self_to_task,             // must be added to all the new controls added
-			                                NULL                       // NULL at the end of the array
+			                                &self_to_task,
+			                                NULL  
 		                                }
 	                                };
             memcpy(&(cgroups[next_cgroup_pos]->settings[0]->value), optarg, strlen(optarg));
             next_cgroup_pos++;
 			break;
+        
+        /*
+        --- CGROUP CONTROL: CPU CPUS ---
+        --- CGROUP PARAMETER: cpuset.cpus ---
+        --- CGROUP FUNCTION: specifies the CPUs that tasks in this cgroup are permitted to access ---
+        */
 		case 's':
 			cgroups[next_cgroup_pos] = & (struct cgroups_control) {
 		                                .control = CGRP_CPU_SET_CONTROL,
@@ -126,19 +149,30 @@ int main(int argc, char **argv)
 				                                .name = "cpuset.cpus",
 				                                .value = ""
 			                                },
-			                                &self_to_task,             // must be added to all the new controls added
-			                                NULL                       // NULL at the end of the array
+			                                &self_to_task, 
+			                                NULL,
+                                            NULL                      // Allocate space for an additional element, i.e. the hardcoded setting
 		                                }
 	                                };
             memcpy(&(cgroups[next_cgroup_pos]->settings[0]->value), optarg, strlen(optarg));
+
+            // As we cannot provide multiple arguments to the -s cpuset flag, we must 'hardcode the cpuset.mems
+            // value directly into the settings array of this cgroup
+            // This cgroup setting specifies the memory nodes that tasks in this cgroup are permitted to access
             (cgroups[next_cgroup_pos]->settings[1]) = & (struct cgroup_setting) {
-				                                        .name = "cpuset.mem",
+				                                        .name = "cpuset.mems",
 				                                        .value = "0"
 			                                        };
             (cgroups[next_cgroup_pos]->settings[2]) = &self_to_task;
             (cgroups[next_cgroup_pos]->settings[3]) = NULL;
             next_cgroup_pos++;
 			break;
+
+        /*
+        --- CGROUP CONTROL: MAXIMUM PIDS ---
+        --- CGROUP PARAMETER: pids.max ---
+        --- CGROUP FUNCTION: specifies the maximum number of tasks that can be executed within the current cgroup ---
+        */    
 		case 'p':
             cgroups[next_cgroup_pos] = & (struct cgroups_control) {
 		                                .control = CGRP_PIDS_CONTROL,
@@ -147,13 +181,19 @@ int main(int argc, char **argv)
 				                                .name = "pids.max",
 				                                .value = ""
 			                                },
-			                                &self_to_task,             // must be added to all the new controls added
-			                                NULL                       // NULL at the end of the array
+			                                &self_to_task,
+			                                NULL
 		                                }
 	                                };
             memcpy(&(cgroups[next_cgroup_pos]->settings[0]->value), optarg, strlen(optarg));
             next_cgroup_pos++;
 			break;
+
+        /*
+        --- CGROUP CONTROL: MEMORY USAGE LIMIT ---
+        --- CGROUP PARAMETER: memory.limit_in_bytes ---
+        --- CGROUP FUNCTION: specifies the maximum amount of user memory ---
+        */
 		case 'M':
             cgroups[next_cgroup_pos] = & (struct cgroups_control) {
 		                                .control = CGRP_MEMORY_CONTROL,
@@ -169,37 +209,48 @@ int main(int argc, char **argv)
             memcpy(&(cgroups[next_cgroup_pos]->settings[0]->value), optarg, strlen(optarg));
             next_cgroup_pos++;
 			break;
+
+        /*
+        --- CGROUP CONTROL: BLKIO READ I/O OPERATIONS PER SECOND ---
+        --- CGROUP PARAMETER: blkio.throttle.read_iops_device ---
+        --- CGROUP FUNCTION: specifies the upper limit on the number of read operations a device can perform ---
+        */
 		case 'r':
             (cgroups[0]->settings[next_blkio_setting]) = & (struct cgroup_setting) {
 				                                        .name = "blkio.throttle.read_iops_device",
 				                                        .value = ""
 			                                        };
             memcpy(&(cgroups[0]->settings[next_blkio_setting]->value), optarg, strlen(optarg));
-            next_blkio_setting++;
-            (cgroups[0]->settings[next_blkio_setting]) = &self_to_task;
-            next_blkio_setting++;
-            (cgroups[0]->settings[next_blkio_setting]) = NULL;
-            next_blkio_setting++;
-
-            next_cgroup_pos++;
+            printf("Entry Blkio Position: %d\n", next_blkio_setting);
+			next_blkio_setting++;
+			(cgroups[0]->settings[next_blkio_setting]) = &self_to_task;
+			(cgroups[0]->settings[next_blkio_setting]) = NULL;
 			break;
+
+        /*
+        --- CGROUP CONTROL: BLKIO WRITE I/O OPERATIONS PER SECOND ---
+        --- CGROUP PARAMETER: blkio.throttle.write_iops_device ---
+        --- CGROUP FUNCTION: specifies the upper limit on the number of write operations a device can perform ---
+        */
 		case 'w':
             (cgroups[0]->settings[next_blkio_setting]) = & (struct cgroup_setting) {
 				                                        .name = "blkio.throttle.write_iops_device",
 				                                        .value = ""
 			                                        };
             memcpy(&(cgroups[0]->settings[next_blkio_setting]->value), optarg, strlen(optarg));
-            next_blkio_setting++;
+            printf("Entry Blkio Position: %d\n", next_blkio_setting);
+			next_blkio_setting++;
             (cgroups[0]->settings[next_blkio_setting]) = &self_to_task;
-            next_blkio_setting++;
             (cgroups[0]->settings[next_blkio_setting]) = NULL;
-            next_blkio_setting++;
-
-            next_cgroup_pos++;
 			break;
 		case 'H':
             config.hostname = optarg;
 			break;
+
+        /*
+            ------------ DYNAMIC CREATION OF CGROUP CONTROLS & SETTINGS ------------
+        */
+
         default:
             cleanup_stuff(argv, sockets);
             return EXIT_FAILURE;
